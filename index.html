@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Checagem ao vivo</title>
+<style>
+:root{
+  --bg:#0c0d10; --panel:#15171c; --panel-2:#1c1f26; --line:#2a2e37;
+  --ink:#eef0f4; --ink-2:#a5abb8; --ink-3:#6c7280;
+  --true:#2fe383; --true-dark:#002713; --true-ink:#03170b;
+  --false:#ff3b4e; --false-dark:#3a0008; --false-ink:#fff;
+  --warn:#f5b93a; --accent:#7aa2ff;
+  --radius:10px;
+  --font:ui-sans-serif,-apple-system,"SF Pro Text","Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--font)}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--accent)}
+
+header{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line)}
+header h1{font-size:15px;margin:0;letter-spacing:.02em}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 10px;border-radius:99px;background:var(--panel-2);color:var(--ink-2)}
+.pill i{width:8px;height:8px;border-radius:50%;background:var(--ink-3)}
+.pill.on i{background:var(--false);box-shadow:0 0 0 0 var(--false);animation:pulse 1.4s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 7px transparent}}
+header .sp{flex:1}
+.pill.tv-on{color:var(--true)}
+
+main{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;padding:16px 20px}
+@media (max-width:1000px){main{grid-template-columns:1fr}}
+
+/* ---------- Palco + duotone ---------- */
+.stage{position:relative;aspect-ratio:16/9;background:#000;border-radius:var(--radius);overflow:hidden;isolation:isolate}
+.stage .video{position:absolute;inset:0}
+.stage iframe{width:100%;height:100%;border:0;display:block;transition:filter .45s ease}
+.placeholder{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--ink-3);
+  background:radial-gradient(circle at 30% 30%,#3a4256,#14161b 60%),#111;transition:filter .45s ease}
+.placeholder b{display:block;color:var(--ink-2);font-size:18px;margin-bottom:4px}
+
+.stage[data-state=verdadeiro] iframe,.stage[data-state=falso] iframe,
+.stage[data-state=verdadeiro] .placeholder,.stage[data-state=falso] .placeholder{filter:grayscale(1) contrast(1.25) brightness(1.08)}
+.tone{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .45s ease,background-color .45s ease}
+.tone.light{mix-blend-mode:multiply}
+.tone.dark{mix-blend-mode:screen}
+.stage[data-state=falso] .tone.light{background:var(--false);opacity:1}
+.stage[data-state=falso] .tone.dark{background:var(--false-dark);opacity:1}
+.stage[data-state=verdadeiro] .tone.light{background:var(--true);opacity:1}
+.stage[data-state=verdadeiro] .tone.dark{background:var(--true-dark);opacity:1}
+
+/* Tarja inferior com o veredito */
+.verdict{position:absolute;left:3%;right:3%;bottom:5%;display:flex;gap:0;pointer-events:auto;
+  transform:translateY(16px);opacity:0;transition:opacity .35s ease,transform .35s cubic-bezier(.2,.8,.2,1)}
+.stage[data-state=verdadeiro] .verdict,.stage[data-state=falso] .verdict{opacity:1;transform:none}
+.verdict .tag{flex:none;display:grid;place-items:center;padding:0 2.2cqw;font-weight:800;letter-spacing:.06em;font-size:clamp(14px,2.4cqw,34px)}
+.verdict .body{flex:1;min-width:0;background:rgba(8,9,12,.92);padding:1.2cqw 1.6cqw}
+.verdict .claim{margin:0 0 .5cqw;font-size:clamp(13px,1.7cqw,24px);font-weight:600;line-height:1.25}
+.verdict .why{margin:0 0 .6cqw;font-size:clamp(11px,1.15cqw,16px);color:var(--ink-2)}
+.verdict .src{font-size:clamp(11px,1.1cqw,15px);color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.verdict .src b{color:var(--ink)}
+.verdict .src a{color:inherit}
+.stage[data-state=falso] .verdict .tag{background:var(--false);color:var(--false-ink)}
+.stage[data-state=verdadeiro] .verdict .tag{background:var(--true);color:var(--true-ink)}
+.stage{container-type:inline-size}
+
+.live{position:absolute;left:3%;right:3%;top:4%;font-size:clamp(11px,1.2cqw,16px);color:#fff;
+  text-shadow:0 1px 3px #000;opacity:.85;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.checking{position:absolute;right:3%;top:4%;display:none;align-items:center;gap:8px;font-size:12px;
+  background:rgba(8,9,12,.8);padding:5px 10px;border-radius:99px;pointer-events:none}
+.checking.on{display:flex}
+.spin{width:10px;height:10px;border-radius:50%;border:2px solid var(--ink-3);border-top-color:var(--ink);animation:sp 0.8s linear infinite}
+@keyframes sp{to{transform:rotate(1turn)}}
+
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.controls input{flex:1;min-width:220px}
+.micbar{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:12px;color:var(--ink-3)}
+.meter{width:160px;height:8px;border-radius:4px;background:var(--panel-2);overflow:hidden;flex:none}
+.meter i{display:block;height:100%;width:0;background:var(--true);transition:width .08s linear}
+#micMsg.err{color:var(--false)}
+.transcript p.interim{color:var(--ink-3);font-style:italic}
+input[type=text],input[type=password],select,textarea{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+button{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer}
+button:hover{border-color:var(--ink-3)}
+button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink);font-weight:600}
+button.rec{background:var(--false);border-color:var(--false);color:#fff;font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+
+/* ---------- Painel lateral ---------- */
+aside{display:flex;flex-direction:column;gap:12px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px}
+.card h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-3);margin:0 0 10px;display:flex;justify-content:space-between}
+.log{display:flex;flex-direction:column;gap:8px;max-height:46vh;overflow:auto}
+.item{border-left:3px solid var(--ink-3);background:var(--panel-2);border-radius:6px;padding:8px 10px}
+.item .st{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.item[data-v=verdadeiro]{border-color:var(--true)} .item[data-v=verdadeiro] .st{color:var(--true)}
+.item[data-v=falso]{border-color:var(--false)} .item[data-v=falso] .st{color:var(--false)}
+.item[data-v=impreciso],.item[data-v=sem_fonte]{border-color:var(--warn)} .item[data-v=impreciso] .st,.item[data-v=sem_fonte] .st{color:var(--warn)}
+.item[data-v=erro]{border-color:var(--false)}
+.item p{margin:3px 0}
+.item .c{font-weight:600}
+.item .w,.item .s{color:var(--ink-2);font-size:13px}
+.item .s a{word-break:break-all}
+.item button{margin-top:6px;padding:3px 8px;font-size:12px}
+.empty{color:var(--ink-3);font-size:13px}
+.transcript{max-height:20vh;overflow:auto;font-size:13px;color:var(--ink-2)}
+.transcript p{margin:0 0 4px}
+.transcript p.tri{font-size:12px;color:var(--ink-3);margin:-2px 0 8px}
+.transcript p.tri.err{color:var(--false)}
+.sim{display:flex;gap:6px}
+.sim input{flex:1;min-width:0}
+.presets{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.presets button{font-size:12px;padding:4px 8px;text-align:left}
+details summary{cursor:pointer;color:var(--ink-2)}
+.field{display:flex;flex-direction:column;gap:4px;margin-top:10px}
+.field label{font-size:12px;color:var(--ink-3)}
+.field textarea{min-height:140px;font-family:var(--mono);font-size:12px}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.note{font-size:12px;color:var(--ink-3);margin:6px 0 0}
+.err{color:var(--false)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Checagem ao vivo</h1>
+  <span class="pill" id="pill"><i></i><span id="pillText">Microfone desligado</span></span>
+  <span class="pill" id="tvStatus" title="Precisa da extensão da pasta extensao-globoplay">Globoplay: extensão não detectada</span>
+  <span class="sp"></span>
+  <button id="btnDemo" title="Mostra as duas cores sem chamar a API">Testar cores</button>
+  <button id="btnClear" title="Atalho: Esc">Limpar tela</button>
+</header>
+
+<main>
+  <section>
+    <div class="stage" id="stage" data-state="neutro">
+      <div class="video" id="video">
+        <div class="placeholder"><div><b>Cole o link de uma live do YouTube</b>ou use o microfone / simulador ao lado</div></div>
+      </div>
+      <div class="tone light"></div>
+      <div class="tone dark"></div>
+      <div class="live" id="live"></div>
+      <div class="checking" id="checking"><span class="spin"></span><span id="checkingText">Verificando…</span></div>
+      <div class="verdict" id="verdict" aria-live="polite">
+        <div class="tag" id="vTag">FALSO</div>
+        <div class="body">
+          <p class="claim" id="vClaim"></p>
+          <p class="why" id="vWhy"></p>
+          <div class="src" id="vSrc"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <input type="text" id="ytUrl" placeholder="https://www.youtube.com/watch?v=…  ou  /live/…">
+      <button id="btnLoad">Carregar vídeo</button>
+      <button id="btnMic" class="primary">Começar a ouvir</button>
+    </div>
+    <div class="micbar">
+      <span>Volume no microfone</span>
+      <div class="meter"><i id="meter"></i></div>
+      <span id="micMsg">desligado</span>
+    </div>
+    <p class="note">O microfone capta quem está falando (ou o som da live saindo da caixa de som; com fone de ouvido ele não escuta o vídeo). A transcrição usa o reconhecimento de voz do Chrome.</p>
+  </section>
+
+  <aside>
+    <div class="card">
+      <h2><span>Checagens</span><span id="count"></span></h2>
+      <div class="log" id="log"><p class="empty">Nenhuma afirmação checada ainda.</p></div>
+    </div>
+
+    <div class="card">
+      <h2>Simular fala</h2>
+      <div class="sim">
+        <input type="text" id="simText" placeholder="Digite uma frase como se alguém tivesse dito">
+        <button id="btnSim">Enviar</button>
+      </div>
+      <div class="presets" id="presets"></div>
+    </div>
+
+    <div class="card">
+      <h2>Transcrição</h2>
+      <div class="transcript" id="transcript"><p class="empty">—</p></div>
+    </div>
+
+    <div class="card">
+      <details id="settings">
+        <summary>Configurações</summary>
+        <div class="field">
+          <label for="apiKey">Chave da API da Anthropic (fica salva só neste navegador)</label>
+          <input type="password" id="apiKey" placeholder="sk-ant-…" autocomplete="off">
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="model">Modelo</label>
+            <select id="model">
+              <option value="claude-opus-5-5">Claude Opus 5.5</option>
+              <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (mais rápido)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="effort">Profundidade</label>
+            <select id="effort">
+              <option value="low">Rápida</option>
+              <option value="medium">Normal</option>
+              <option value="high">Cuidadosa</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="hold">Tempo na tela</label>
+            <select id="hold">
+              <option value="6">6 s</option>
+              <option value="10">10 s</option>
+              <option value="15">15 s</option>
+              <option value="0">até limpar</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="tvStyle">Cor na Globoplay</label>
+          <select id="tvStyle">
+            <option value="duotone">Duotone (igual ao YouTube)</option>
+            <option value="tinta">Película colorida (use se o vídeo ficar preto)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="domains">Veículos permitidos (um por linha · domínio = nome). A busca só enxerga estes sites.</label>
+          <textarea id="domains" spellcheck="false"></textarea>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button id="btnSave" class="primary">Salvar</button>
+          <button id="btnReset">Restaurar lista padrão</button>
+        </div>
+        <p class="note" id="saveNote"></p>
+      </details>
+    </div>
+  </aside>
+</main>
+
+<script>
+"use strict";
+
+/* ===================== Configuração ===================== */
+
+const DEFAULT_DOMAINS = [
+  ["g1.globo.com", "g1"],
+  ["oglobo.globo.com", "O Globo"],
+  ["valor.globo.com", "Valor Econômico"],
+  ["folha.uol.com.br", "Folha de S.Paulo"],
+  ["agenciabrasil.ebc.com.br", "Agência Brasil"],
+  ["cnnbrasil.com.br", "CNN Brasil"],
+  ["noticias.uol.com.br", "UOL"],
+  ["economia.uol.com.br", "UOL Economia"],
+  ["band.uol.com.br", "Band"],
+  ["poder360.com.br", "Poder360"],
+  ["metropoles.com", "Metrópoles"],
+  ["correiobraziliense.com.br", "Correio Braziliense"],
+  ["exame.com", "Exame"],
+  ["infomoney.com.br", "InfoMoney"],
+  ["veja.abril.com.br", "Veja"],
+  ["cartacapital.com.br", "CartaCapital"],
+  ["gauchazh.clicrbs.com.br", "GZH"],
+  ["em.com.br", "Estado de Minas"],
+  ["aosfatos.org", "Aos Fatos"],
+  ["lupa.uol.com.br", "Agência Lupa"],
+];
+
+const PRESETS = [
+  "O MEI foi criado no governo Lula.",
+  "O FMI projetou o Brasil como a oitava maior economia do mundo em 2027.",
+  "O desemprego chegou ao menor nível da série histórica do IBGE.",
+  "O Brasil é o país mais populoso do mundo.",
+];
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("checagem." + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("checagem." + k, JSON.stringify(v)); } catch {} },
+};
+
+const cfg = {
+  key: store.get("key", ""),
+  model: store.get("model", "claude-opus-5-5"),
+  effort: store.get("effort", "low"),
+  hold: store.get("hold", 10),
+  domains: store.get("domains", DEFAULT_DOMAINS),
+  ytUrl: store.get("ytUrl", ""),
+  tvStyle: store.get("tvStyle", "duotone"),
+};
+
+const $ = (id) => document.getElementById(id);
+
+/* ===================== Configurações (UI) ===================== */
+
+function domainsToText(list) { return list.map(([d, n]) => n && n !== d ? `${d} = ${n}` : d).join("\n"); }
+function textToDomains(t) {
+  return t.split("\n").map(l => l.trim()).filter(Boolean).map(l => {
+    const [d, ...rest] = l.split("=");
+    const dom = d.trim().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "");
+    return [dom, rest.join("=").trim() || dom];
+  }).filter(([d]) => /^[a-z0-9.-]+\.[a-z]{2,}(\/[\w\/-]*)?$/i.test(d)).slice(0, 60);
+}
+
+function fillSettings() {
+  $("apiKey").value = cfg.key;
+  $("model").value = cfg.model;
+  $("effort").value = cfg.effort;
+  $("hold").value = String(cfg.hold);
+  $("tvStyle").value = cfg.tvStyle;
+  $("domains").value = domainsToText(cfg.domains);
+  $("ytUrl").value = cfg.ytUrl;
+}
+$("btnSave").onclick = () => {
+  cfg.key = $("apiKey").value.trim();
+  cfg.model = $("model").value;
+  cfg.effort = $("effort").value;
+  cfg.hold = Number($("hold").value);
+  cfg.tvStyle = $("tvStyle").value;
+  const d = textToDomains($("domains").value);
+  if (d.length) cfg.domains = d;
+  for (const k of ["key", "model", "effort", "hold", "domains", "tvStyle"]) store.set(k, cfg[k]);
+  $("domains").value = domainsToText(cfg.domains);
+  $("saveNote").textContent = `Salvo. ${cfg.domains.length} veículos na lista.`;
+};
+$("btnReset").onclick = () => { $("domains").value = domainsToText(DEFAULT_DOMAINS); };
+
+/* ===================== Vídeo do YouTube ===================== */
+
+function youtubeEmbed(url) {
+  url = url.trim();
+  let m = url.match(/(?:v=|youtu\.be\/|\/embed\/|\/live\/|\/shorts\/)([\w-]{11})/);
+  if (m) return `https://www.youtube.com/embed/${m[1]}?autoplay=1&playsinline=1&rel=0`;
+  if (/^[\w-]{11}$/.test(url)) return `https://www.youtube.com/embed/${url}?autoplay=1&playsinline=1&rel=0`;
+  m = url.match(/channel\/(UC[\w-]{22})/);
+  if (m) return `https://www.youtube.com/embed/live_stream?channel=${m[1]}&autoplay=1`;
+  return null;
+}
+function loadVideo() {
+  if (/globo\.com|globoplay/i.test($("ytUrl").value)) {
+    cfg.ytUrl = ""; store.set("ytUrl", "");
+    const ph = document.createElement("div"); ph.className = "placeholder";
+    ph.innerHTML = "<div><b>A Globoplay toca na aba dela</b>Deixe o vídeo tocando com som lá. A cor e a fonte aparecem por cima da Globoplay pela extensão.</div>";
+    $("video").replaceChildren(ph);
+    return;
+  }
+  const src = youtubeEmbed($("ytUrl").value);
+  if (!src) { alert("Não reconheci esse link do YouTube."); return; }
+  cfg.ytUrl = $("ytUrl").value.trim(); store.set("ytUrl", cfg.ytUrl);
+  const f = document.createElement("iframe");
+  f.src = src;
+  f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+  f.referrerPolicy = "strict-origin-when-cross-origin";
+  f.allowFullscreen = true;
+  $("video").replaceChildren(f);
+}
+$("btnLoad").onclick = loadVideo;
+$("ytUrl").addEventListener("keydown", e => { if (e.key === "Enter") loadVideo(); });
+
+/* ===================== Exibição do veredito ===================== */
+
+const showQueue = [];
+let showing = false, holdTimer = null;
+
+function present(v) { showQueue.push(v); if (!showing) nextShow(); }
+
+/* Ponte para a Globoplay: a extensão "extensao-globoplay" repassa isto para a aba da Globo. */
+function tvBridge(v) {
+  window.postMessage({ __checagem: 1, veredito: v, estilo: cfg.tvStyle }, location.origin);
+}
+window.addEventListener("message", (e) => {
+  if (e.source !== window || !e.data || e.data.__checagemResp !== 1) return;
+  const n = e.data.abas;
+  $("tvStatus").textContent = n > 0 ? `Globoplay conectada (${n} aba${n > 1 ? "s" : ""})` : "Extensão ativa, mas nenhuma aba da Globoplay aberta";
+  $("tvStatus").className = "pill" + (n > 0 ? " tv-on" : "");
+});
+function nextShow() {
+  clearTimeout(holdTimer);
+  const v = showQueue.shift();
+  if (!v) { showing = false; $("stage").dataset.state = "neutro"; tvBridge(null); return; }
+  showing = true;
+  tvBridge(v);
+  $("vTag").textContent = v.veredito === "verdadeiro" ? "VERDADEIRO" : "FALSO";
+  $("vClaim").textContent = `“${v.afirmacao}”`;
+  $("vWhy").textContent = v.resumo || "";
+  const src = $("vSrc"); src.replaceChildren();
+  if (v.fonte) {
+    src.append("Fonte: ");
+    const b = document.createElement("b"); b.textContent = v.fonte.veiculo; src.append(b);
+    if (v.fonte.titulo) src.append(` · ${v.fonte.titulo}`);
+    if (v.fonte.data) src.append(` · ${v.fonte.data}`);
+    if (v.fonte.url) {
+      src.append(" · ");
+      const a = document.createElement("a"); a.href = v.fonte.url; a.target = "_blank"; a.rel = "noopener";
+      a.textContent = prettyUrl(v.fonte.url); src.append(a);
+    }
+  }
+  $("stage").dataset.state = v.veredito;
+  if (cfg.hold > 0) holdTimer = setTimeout(nextShow, cfg.hold * 1000);
+}
+function clearScreen() { showQueue.length = 0; nextShow(); }
+$("btnClear").onclick = clearScreen;
+document.addEventListener("keydown", e => { if (e.key === "Escape") clearScreen(); });
+
+$("btnDemo").onclick = () => {
+  const demo = { veiculo: "DEMONSTRAÇÃO", titulo: "exemplo visual, sem checagem real", url: "" };
+  present({ veredito: "verdadeiro", afirmacao: "Exemplo de afirmação confirmada", resumo: "Assim aparece quando um jornal confirma o que foi dito.", fonte: demo });
+  present({ veredito: "falso", afirmacao: "Exemplo de afirmação desmentida", resumo: "Assim aparece quando um jornal contradiz o que foi dito.", fonte: demo });
+};
+
+function prettyUrl(u) { try { const x = new URL(u); return (x.hostname.replace(/^www\./, "") + x.pathname).slice(0, 70); } catch { return u; } }
+
+/* ===================== Registro lateral ===================== */
+
+let total = 0;
+const LABEL = { verificando: "Verificando…", verdadeiro: "Verdadeiro", falso: "Falso", impreciso: "Impreciso", sem_fonte: "Sem fonte nos veículos", erro: "Erro" };
+
+function addItem(claim) {
+  const log = $("log");
+  log.querySelector(".empty")?.remove();
+  const el = document.createElement("div");
+  el.className = "item"; el.dataset.v = "verificando";
+  el.innerHTML = `<div class="st"></div><p class="c"></p><p class="w"></p><p class="s"></p>`;
+  el.querySelector(".st").textContent = LABEL.verificando;
+  el.querySelector(".c").textContent = claim;
+  log.prepend(el);
+  $("count").textContent = String(++total);
+  return el;
+}
+function updateItem(el, v) {
+  el.dataset.v = v.veredito;
+  el.querySelector(".st").textContent = LABEL[v.veredito] || v.veredito;
+  el.querySelector(".w").textContent = v.resumo || "";
+  const s = el.querySelector(".s"); s.replaceChildren();
+  if (v.fonte) {
+    s.append(`${v.fonte.veiculo}${v.fonte.data ? " · " + v.fonte.data : ""}: `);
+    const a = document.createElement("a"); a.href = v.fonte.url; a.target = "_blank"; a.rel = "noopener";
+    a.textContent = v.fonte.titulo || prettyUrl(v.fonte.url); s.append(a);
+  }
+  if (v.veredito === "verdadeiro" || v.veredito === "falso") {
+    const b = document.createElement("button"); b.textContent = "Mostrar de novo";
+    b.onclick = () => present(v); el.append(b);
+  }
+}
+
+let busy = 0;
+function setBusy(d) {
+  busy += d;
+  $("checking").classList.toggle("on", busy > 0);
+  $("checkingText").textContent = busy > 1 ? `Verificando ${busy} afirmações…` : "Verificando…";
+}
+
+/* ===================== API do Claude ===================== */
+
+let useFallbacks = true;
+
+async function callClaude(body) {
+  if (!cfg.key) throw new Error("Falta a chave da API (abra Configurações).");
+  const send = async () => {
+    const headers = {
+      "content-type": "application/json",
+      "x-api-key": cfg.key,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    };
+    const payload = { ...body };
+    if (useFallbacks) { headers["anthropic-beta"] = "server-side-fallback-2026-07-01"; payload.fallbacks = "default"; }
+    const r = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(payload) });
+    const j = await r.json().catch(() => ({}));
+    return { r, j };
+  };
+  let { r, j } = await send();
+  if (r.status === 400 && useFallbacks && /fallback/i.test(j?.error?.message || "")) { useFallbacks = false; ({ r, j } = await send()); }
+  if (!r.ok) {
+    const msg = j?.error?.message || r.statusText;
+    if (r.status === 401) throw new Error("Chave da API inválida.");
+    if (r.status === 429) throw new Error("Limite de uso da API atingido; espere um pouco.");
+    throw new Error(`API ${r.status}: ${msg}`);
+  }
+  return j;
+}
+
+function lastJson(text) {
+  const a = text.indexOf("{"), b = text.lastIndexOf("}");
+  if (a < 0 || b <= a) return null;
+  try { return JSON.parse(text.slice(a, b + 1)); } catch { return null; }
+}
+function textOf(content) { return content.filter(b => b.type === "text").map(b => b.text).join(""); }
+function today() { return new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" }); }
+
+/* Passo 1: separar afirmações checáveis do que é opinião / conversa */
+const recentClaims = [];
+async function extractClaims(text, context) {
+  const prompt =
+`Você faz a triagem de um sistema de checagem de fatos ao vivo. Hoje é ${today()}.
+Abaixo está um trecho recém-transcrito de uma fala ao vivo (pode ter erros de transcrição).
+
+Contexto anterior (só para entender pronomes e referências, NÃO extraia daqui):
+"""${context || "(nenhum)"}"""
+
+Trecho novo:
+"""${text}"""
+
+Já checadas recentemente (não repita):
+${recentClaims.slice(-8).map(c => "- " + c).join("\n") || "(nenhuma)"}
+
+Extraia do TRECHO NOVO toda afirmação sobre o mundo que um jornal poderia confirmar ou desmentir: números, estatísticas, recordes, datas, leis, decisões, quem fez/criou/disse/votou o quê, acontecimentos, situação da economia, do governo, de empresas, de pessoas públicas.
+Vale também afirmação embutida em frase opinativa ("esse governo que aumentou o desemprego" contém "o desemprego aumentou").
+Ignore só o que não tem nada a checar: sentimentos, gostos, cumprimentos, perguntas, piadas e fatos da vida privada de quem fala.
+Na dúvida, inclua. A fala vem de reconhecimento de voz, sem pontuação e com erros: corrija palavras óbvias.
+Reescreva cada uma como frase completa e autônoma, sem pronomes soltos. No máximo 3.
+Responda só com JSON: {"afirmacoes": ["..."]}  (lista vazia se não houver nada checável).`;
+  const j = await callClaude({
+    model: cfg.model, max_tokens: 4000,
+    output_config: { effort: "low" },
+    messages: [{ role: "user", content: prompt }],
+  });
+  if (j.stop_reason === "refusal") return [];
+  const out = lastJson(textOf(j.content));
+  return Array.isArray(out?.afirmacoes) ? out.afirmacoes.filter(s => typeof s === "string" && s.trim()).slice(0, 3) : [];
+}
+
+/* Passo 2: checar só nos veículos permitidos */
+function matchDomain(url) {
+  let u; try { u = new URL(url); } catch { return null; }
+  if (!/^https?:$/.test(u.protocol)) return null;
+  const host = u.hostname.replace(/^www\./, "");
+  for (const [d, name] of cfg.domains) {
+    const [dh, ...p] = d.split("/"); const dp = p.length ? "/" + p.join("/") : "";
+    if ((host === dh || host.endsWith("." + dh)) && u.pathname.startsWith(dp)) return name;
+  }
+  return null;
+}
+
+const debugLog = [];
+window.debugLog = debugLog;
+function normUrl(u) {
+  try { const x = new URL(u); return (x.hostname.replace(/^www\./, "") + x.pathname.replace(/\/+$/, "")).toLowerCase(); }
+  catch { return String(u).toLowerCase(); }
+}
+
+async function verify(claim, context) {
+  const list = cfg.domains.map(([d, n]) => `${n} (${d})`).join(", ");
+  const prompt =
+`Você é checador de fatos de uma transmissão ao vivo. Hoje é ${today()}.
+Verifique a afirmação abaixo usando APENAS a busca na web, que está restrita a estes veículos de imprensa: ${list}.
+Não use conhecimento próprio como fonte: o veredito precisa estar apoiado numa reportagem encontrada na busca.
+
+Afirmação: "${claim}"
+Contexto da fala: "${context || ""}"
+
+Como decidir:
+- "verdadeiro": uma reportagem confirma diretamente o essencial da afirmação.
+- "falso": uma reportagem contradiz diretamente o essencial da afirmação.
+- "impreciso": a ideia tem base, mas número, data ou autoria estão errados ou exagerados.
+- "sem_fonte": os veículos não trazem informação suficiente. Na dúvida, use este. Nunca chame de falso só porque não achou.
+Prefira as reportagens mais recentes quando o fato muda com o tempo (estatísticas, projeções).
+
+Responda só com JSON, sem texto fora dele:
+{"veredito":"verdadeiro|falso|impreciso|sem_fonte","resumo":"uma frase curta explicando, em português","fonte":{"url":"URL exata da reportagem usada","titulo":"título da reportagem","data":"data da reportagem se souber"}}
+Em "sem_fonte", "fonte" pode ser null.`;
+
+  const messages = [{ role: "user", content: prompt }];
+  const seen = new Map(); // url normalizada -> {url, title, age}
+  const cited = [];       // citações que a busca anexou ao texto
+  let j, rounds = 0;
+  while (true) {
+    try {
+      j = await callClaude({
+        model: cfg.model, max_tokens: 16000,
+        output_config: { effort: cfg.effort },
+        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5, allowed_domains: cfg.domains.map(([d]) => d) }],
+        messages,
+      });
+    } catch (e) {
+      // Alguns sites bloqueiam o robô de busca da Anthropic e a API recusa a lista inteira:
+      // tira esses sites da lista (e salva) e tenta de novo.
+      const m = e.message.match(/not accessible to our user agent: \[([^\]]*)\]/);
+      if (!m || rounds++ > 3) throw e;
+      const blocked = [...m[1].matchAll(/'([^']+)'/g)].map(x => x[1]);
+      const before = cfg.domains.length;
+      cfg.domains = cfg.domains.filter(([d]) => !blocked.includes(d.split("/")[0]));
+      if (cfg.domains.length === before || !cfg.domains.length) throw e;
+      store.set("domains", cfg.domains);
+      $("domains").value = domainsToText(cfg.domains);
+      $("saveNote").textContent = `Removidos da lista (bloqueiam a busca): ${blocked.join(", ")}`;
+      continue;
+    }
+    for (const b of j.content) {
+      if (b.type === "web_search_tool_result" && Array.isArray(b.content))
+        for (const r of b.content) if (r.url) seen.set(normUrl(r.url), { url: r.url, title: r.title, age: r.page_age });
+      if (b.type === "text" && Array.isArray(b.citations))
+        for (const c of b.citations) if (c.url) cited.push(c);
+    }
+    if (j.stop_reason === "pause_turn" && rounds++ < 3) { messages.push({ role: "assistant", content: j.content }); continue; }
+    break;
+  }
+  if (j.stop_reason === "refusal") return { veredito: "sem_fonte", resumo: "O modelo não quis avaliar essa afirmação." };
+
+  const out = lastJson(textOf(j.content)) || {};
+  const v = {
+    afirmacao: claim,
+    veredito: ["verdadeiro", "falso", "impreciso", "sem_fonte"].includes(out.veredito) ? out.veredito : "sem_fonte",
+    resumo: typeof out.resumo === "string" ? out.resumo : "",
+    fonte: null,
+  };
+  // A fonte só vale se veio da busca E é de um veículo da lista.
+  let url = typeof out?.fonte?.url === "string" ? out.fonte.url : "";
+  let meta = url && seen.get(normUrl(url));
+  if (!meta) {
+    // O link do JSON não bateu: usa a primeira citação da busca que seja de um veículo permitido.
+    const c = cited.find(c => matchDomain(c.url) && seen.has(normUrl(c.url)));
+    if (c) { url = c.url; meta = seen.get(normUrl(c.url)); }
+  }
+  const veiculo = meta && matchDomain(meta.url);
+  if (meta && veiculo) {
+    v.fonte = { url: meta.url, veiculo, titulo: (meta.url === out?.fonte?.url && out.fonte.titulo) || meta.title || out?.fonte?.titulo || "", data: out?.fonte?.data || meta.age || "" };
+  } else if (v.veredito === "verdadeiro" || v.veredito === "falso") {
+    v.veredito = "sem_fonte";
+    v.resumo = "Veredito descartado: a fonte citada não veio da busca nos veículos permitidos.";
+  }
+  debugLog.push({ claim, stop: j.stop_reason, raw: textOf(j.content).slice(-1500), parsed: out, buscados: [...seen.values()].map(s => s.url), citados: cited.map(c => c.url), final: v });
+  console.log("[checagem]", debugLog[debugLog.length - 1]);
+  return v;
+}
+
+/* ===================== Fluxo: fala -> triagem -> checagem ===================== */
+
+const segments = [];
+let pending = [], triageTimer = null, triaging = false;
+
+function onSpeech(text) {
+  if (!text) return;
+  segments.push(text);
+  const t = $("transcript");
+  t.querySelector(".empty")?.remove();
+  const p = document.createElement("p"); p.textContent = text; t.append(p); t.scrollTop = t.scrollHeight;
+  pending.push(text);
+  clearTimeout(triageTimer);
+  triageTimer = setTimeout(runTriage, 900);
+}
+
+function triageNote(msg) {
+  const t = $("transcript");
+  const p = document.createElement("p"); p.className = "tri"; p.textContent = "→ " + msg;
+  t.append(p); t.scrollTop = t.scrollHeight;
+  return p;
+}
+
+async function runTriage() {
+  if (triaging || !pending.length) return;
+  triaging = true;
+  const text = pending.join(" "); pending = [];
+  const ctx = segments.slice(-6, -1).join(" ").slice(-1200);
+  const note = triageNote("analisando…");
+  try {
+    const claims = await extractClaims(text, ctx);
+    note.textContent = claims.length
+      ? `→ ${claims.length === 1 ? "1 afirmação enviada" : claims.length + " afirmações enviadas"} para checagem`
+      : "→ nada checável neste trecho";
+    for (const c of claims) { recentClaims.push(c); check(c, ctx + " " + text); }
+  } catch (e) {
+    note.textContent = "→ erro na triagem: " + e.message;
+    note.classList.add("err");
+    const el = addItem(text); updateItem(el, { veredito: "erro", resumo: e.message });
+  } finally {
+    triaging = false;
+    if (pending.length) runTriage();
+  }
+}
+
+async function check(claim, ctx) {
+  const el = addItem(claim);
+  setBusy(1);
+  try {
+    const v = await verify(claim, ctx);
+    v.afirmacao = claim;
+    updateItem(el, v);
+    if (v.veredito === "verdadeiro" || v.veredito === "falso") present(v);
+  } catch (e) {
+    updateItem(el, { veredito: "erro", resumo: e.message });
+  } finally { setBusy(-1); }
+}
+
+/* Simulador */
+$("btnSim").onclick = () => { const t = $("simText").value.trim(); if (t) { onSpeech(t); $("simText").value = ""; } };
+$("simText").addEventListener("keydown", e => { if (e.key === "Enter") $("btnSim").click(); });
+for (const p of PRESETS) { const b = document.createElement("button"); b.textContent = p; b.onclick = () => onSpeech(p); $("presets").append(b); }
+
+/* ===================== Microfone (Web Speech API) ===================== */
+
+let rec = null, listening = false;
+function setListening(on) {
+  listening = on;
+  $("pill").classList.toggle("on", on);
+  $("pillText").textContent = on ? "Ouvindo ao vivo" : "Microfone desligado";
+  $("btnMic").textContent = on ? "Parar de ouvir" : "Começar a ouvir";
+  $("btnMic").className = on ? "rec" : "primary";
+  if (!on) { $("live").textContent = ""; setInterim(""); stopMeter(); micMsg("desligado"); }
+}
+
+function micMsg(text, err) { $("micMsg").textContent = text; $("micMsg").className = err ? "err" : ""; }
+
+/* Fala ainda em reconhecimento aparece em itálico na Transcrição */
+function setInterim(text) {
+  let p = $("transcript").querySelector("p.interim");
+  if (!text) { p?.remove(); return; }
+  if (!p) { $("transcript").querySelector(".empty")?.remove(); p = document.createElement("p"); p.className = "interim"; }
+  p.textContent = text + " …";
+  $("transcript").append(p); $("transcript").scrollTop = $("transcript").scrollHeight;
+}
+
+/* Medidor de volume: mostra se o microfone está escutando algum som */
+let meterStream = null, meterCtx = null, meterRaf = 0;
+async function startMeter() {
+  try {
+    meterStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    meterCtx = new AudioContext();
+    const an = meterCtx.createAnalyser(); an.fftSize = 512;
+    meterCtx.createMediaStreamSource(meterStream).connect(an);
+    const buf = new Uint8Array(an.fftSize);
+    let quiet = 0;
+    const tick = () => {
+      an.getByteTimeDomainData(buf);
+      let peak = 0; for (const x of buf) peak = Math.max(peak, Math.abs(x - 128));
+      const level = Math.min(1, peak / 64);
+      $("meter").style.width = Math.round(level * 100) + "%";
+      if (level >= 0.04 && quiet >= 300) micMsg("ouvindo…");
+      quiet = level < 0.04 ? quiet + 1 : 0;
+      if (quiet === 300) micMsg("silêncio: o microfone não está ouvindo som nenhum (o vídeo está tocando com som? fone de ouvido?)", true);
+      meterRaf = requestAnimationFrame(tick);
+    };
+    tick();
+  } catch (e) { micMsg("não consegui medir o volume: " + e.message, true); }
+}
+function stopMeter() {
+  cancelAnimationFrame(meterRaf);
+  meterStream?.getTracks().forEach(t => t.stop()); meterStream = null;
+  meterCtx?.close().catch(() => {}); meterCtx = null;
+  $("meter").style.width = "0";
+}
+
+const SR_ERRORS = {
+  "network": "o serviço de voz do Google não respondeu (internet?)",
+  "audio-capture": "nenhum microfone encontrado",
+  "not-allowed": "o Chrome bloqueou o microfone (ícone à esquerda do endereço)",
+  "service-not-allowed": "o Chrome bloqueou o reconhecimento de voz",
+  "language-not-supported": "idioma não suportado",
+};
+$("btnMic").onclick = () => {
+  if (listening) { setListening(false); rec?.stop(); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { alert("Este navegador não tem reconhecimento de voz. Use o Google Chrome."); return; }
+  if (!cfg.key) { $("settings").open = true; alert("Coloque a chave da API em Configurações primeiro."); return; }
+  rec = new SR();
+  rec.lang = "pt-BR"; rec.continuous = true; rec.interimResults = true;
+  rec.onresult = (e) => {
+    let interim = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (r.isFinal) { setInterim(""); onSpeech(r[0].transcript.trim()); } else interim += r[0].transcript;
+    }
+    $("live").textContent = interim;
+    if (interim) setInterim(interim);
+    micMsg("reconhecendo fala");
+  };
+  rec.onerror = (e) => {
+    if (e.error === "no-speech" || e.error === "aborted") return; // silêncio: só reinicia
+    micMsg("erro: " + (SR_ERRORS[e.error] || e.error), true);
+    if (e.error === "not-allowed" || e.error === "service-not-allowed" || e.error === "audio-capture") setListening(false);
+  };
+  rec.onend = () => { if (listening) setTimeout(() => { try { rec.start(); } catch {} }, 200); };
+  try { rec.start(); setListening(true); micMsg("ouvindo…"); startMeter(); } catch (e) { alert(e.message); }
+};
+
+/* ===================== Início ===================== */
+fillSettings();
+if (cfg.ytUrl) loadVideo();
+if (!cfg.key) $("settings").open = true;
+</script>
+</body>
+</html>
