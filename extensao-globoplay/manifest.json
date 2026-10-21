@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Checagem ao vivo – Globoplay",
+  "version": "1.0",
+  "description": "Mostra o veredito da página de checagem (localhost:8787) por cima da Globoplay.",
+  "background": { "service_worker": "background.js" },
+  "host_permissions": ["https://*.globo.com/*"],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost:8787/*",
+        "http://127.0.0.1:8787/*",
+        "https://mariaantoniaestudio.github.io/checagem-ao-vivo/*"
+      ],
+      "js": ["ponte.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://*.globo.com/*"],
+      "js": ["overlay.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
